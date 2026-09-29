@@ -1,0 +1,12 @@
+[tools]
+go = "latest"
+
+[tasks.build]
+description = "Build the lazyreviewer binary"
+run = "go build -o lazyreviewer ."
+sources = ["go.mod", "go.sum", "**/*.go"]
+outputs = ["lazyreviewer"]
+
+[tasks.test]
+description = "Run unit tests"
+run = "go test ./..."
