@@ -49,8 +49,8 @@ func newTextarea(placeholder string) textarea.Model {
 	return ta
 }
 
-// openEditor edits text in $VISUAL / $EDITOR and reports the result as editorDoneMsg.
-func openEditor(text string) tea.Cmd {
+// editorArgs is the command line of $VISUAL / $EDITOR, vi by default.
+func editorArgs() []string {
 	editor := os.Getenv("VISUAL")
 	if editor == "" {
 		editor = os.Getenv("EDITOR")
@@ -58,6 +58,11 @@ func openEditor(text string) tea.Cmd {
 	if editor == "" {
 		editor = "vi"
 	}
+	return strings.Fields(editor)
+}
+
+// openEditor edits text in $VISUAL / $EDITOR and reports the result as editorDoneMsg.
+func openEditor(text string) tea.Cmd {
 	f, err := os.CreateTemp("", "lazyreviewer-*.md")
 	if err != nil {
 		return func() tea.Msg { return editorDoneMsg{err: err} }
@@ -67,7 +72,7 @@ func openEditor(text string) tea.Cmd {
 	if err != nil {
 		return func() tea.Msg { return editorDoneMsg{err: err} }
 	}
-	args := append(strings.Fields(editor), f.Name())
+	args := append(editorArgs(), f.Name())
 	return tea.ExecProcess(exec.Command(args[0], args[1:]...), func(err error) tea.Msg {
 		defer os.Remove(f.Name())
 		if err != nil {
@@ -251,8 +256,10 @@ var helpText = [][2]string{
 	{"c", "comment line or range"},
 	{"x", "delete pending comment under cursor"},
 	{"S", "submit review"},
+	{"e", "edit file at cursor in $EDITOR (parent nvim when inside it)"},
 	{"o", "open PR in browser"},
 	{"r", "refresh"},
+	{"mouse", "click to focus / open, drag to select a range, wheel to scroll"},
 	{"q ctrl+c", "quit"},
 }
 

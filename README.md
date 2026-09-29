@@ -35,9 +35,32 @@ Press `?` for all keys. The essentials:
 | `d` | full file ↔ hunks only |
 | `v` then `c` | comment a range (`c` alone comments the cursor line) |
 | `x` | delete the pending comment under the cursor |
+| `e` | open the file at the cursor line in `$EDITOR` (or the parent Neovim) |
 | `S` | submit review (Comment / Approve / Request changes) |
 
 In comment dialogs, `ctrl+s` confirms and `ctrl+e` opens `$EDITOR`.
+
+## Neovim / LazyVim
+
+Like lazygit, lazyreviewer can run in a floating terminal. When started inside
+Neovim (`$NVIM` is set), `e` hides the float and opens the file in the parent
+Neovim; toggling the float again resumes the same session.
+
+```lua
+-- ~/.config/nvim/lua/plugins/lazyreviewer.lua
+return {
+  "folke/snacks.nvim",
+  keys = {
+    {
+      "<leader>gv",
+      function()
+        Snacks.terminal("lazyreviewer", { cwd = LazyVim.root.git(), win = { style = "lazygit" } })
+      end,
+      desc = "LazyReviewer",
+    },
+  },
+}
+```
 
 ## Tests
 

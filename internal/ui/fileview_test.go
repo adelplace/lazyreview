@@ -158,3 +158,73 @@ func BenchmarkLoadLargeFile(b *testing.B) {
 		_ = highlight.Lines("big.go", lines)
 	}
 }
+
+func TestEditTarget(t *testing.T) {
+	// lines: 0 " a" 1 "+NEW" 2 " b" 3 " c" 4 "-gone" 5 " d"
+	tests := []struct {
+		name string
+		cur  int // line index, -1 for the first change
+		want int
+	}{
+		{name: "context line", cur: 0, want: 1},
+		{name: "added line", cur: 1, want: 2},
+		{name: "deleted line resolves to next", cur: 4, want: 5},
+		{name: "first change", cur: -1, want: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := testView(t, nil)
+			if tt.cur >= 0 {
+				cursorOn(v, tt.cur)
+			}
+			path, line, err := v.editTarget(tt.cur >= 0)
+			if err != nil || path != "x.go" || line != tt.want {
+				t.Errorf("got %q %d %v, want x.go %d", path, line, err, tt.want)
+			}
+		})
+	}
+
+	t.Run("comment row uses its anchor line", func(t *testing.T) {
+		v := testView(t, []gh.Thread{{Path: "x.go", Line: 3, Comments: []gh.Comment{{Body: "hi"}}}})
+		for r, rw := range v.rows {
+			if rw.kind == rowComment {
+				v.cursor = r
+				break
+			}
+		}
+		if _, line, _ := v.editTarget(true); line != 3 {
+			t.Errorf("line = %d, want 3", line)
+		}
+	})
+
+	t.Run("deleted at end resolves to previous", func(t *testing.T) {
+		hunks, _ := diff.Parse("@@ -1,2 +1,1 @@\n a\n-gone\n")
+		lines := diff.Annotate("a\n", hunks)
+		v := &fileView{w: 80, h: 20}
+		v.setFile(&gh.File{Path: "y.go"}, &fileData{lines: lines, hunks: hunks, segs: highlight.Lines("y.go", lines)}, nil)
+		v.bottom()
+		if _, line, _ := v.editTarget(true); line != 1 {
+			t.Errorf("line = %d, want 1", line)
+		}
+	})
+
+	t.Run("errors", func(t *testing.T) {
+		v := newFileView()
+		if _, _, err := v.editTarget(true); err == nil {
+			t.Error("want error without a file")
+		}
+		v = *testView(t, nil)
+		v.file = &gh.File{Path: "x.go", Status: "removed"}
+		if _, _, err := v.editTarget(true); err == nil {
+			t.Error("want error for a deleted file")
+		}
+	})
+}
+
+func TestNvimOpenKeys(t *testing.T) {
+	got := nvimOpenKeys("/r/a b|<c>%.go", 7)
+	want := `<Cmd>silent! hide | edit +7 /r/a\ b\|\<lt>c>\%.go<CR>`
+	if got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}

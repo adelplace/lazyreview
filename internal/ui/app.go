@@ -54,6 +54,10 @@ type Model struct {
 	statusErr bool
 	spin      spinner.Model
 	spinning  bool
+
+	// dragging is set while the left button is held in the diff pane.
+	dragging bool
+	dragFrom int // diff row where the drag started
 }
 
 func New(c *gh.Client, openPR int) Model {
@@ -198,6 +202,14 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case editDoneMsg:
+		if msg.err != nil {
+			m.setErr(fmt.Errorf("edit: %w", msg.err))
+		} else if msg.warn != "" {
+			m.setStatus(msg.warn, true)
+		}
+		return nil
+
 	case commentConfirmedMsg:
 		if m.detail == nil {
 			return nil
@@ -221,13 +233,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if m.modal != nil {
 			return nil
 		}
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
-			m.view.page(-3)
-		case tea.MouseButtonWheelDown:
-			m.view.page(3)
-		}
-		return nil
+		return m.onMouse(msg)
 
 	case tea.KeyMsg:
 		return m.onKey(msg)
@@ -514,18 +520,29 @@ func (m *Model) keyPRs(key string) tea.Cmd {
 		m.prs.cursor = 0
 		return loadPRs(m.client, m.prs.state)
 	case "enter", " ":
-		p := m.prs.selected()
-		if p == nil {
-			return nil
-		}
-		if m.detail != nil && m.detail.Number == p.Number {
+		if m.prOpen() {
 			m.focus = paneFiles
 			return nil
 		}
-		m.loadPR = p.Number
-		return loadDetail(m.client, p.Number)
+		return m.openPR()
 	}
 	return nil
+}
+
+// prOpen reports whether the selected PR is the one already displayed.
+func (m *Model) prOpen() bool {
+	p := m.prs.selected()
+	return p != nil && m.detail != nil && m.detail.Number == p.Number
+}
+
+// openPR loads the selected PR unless it is already displayed.
+func (m *Model) openPR() tea.Cmd {
+	p := m.prs.selected()
+	if p == nil || m.prOpen() {
+		return nil
+	}
+	m.loadPR = p.Number
+	return loadDetail(m.client, p.Number)
 }
 
 func (m *Model) keyFiles(key string) tea.Cmd {
@@ -561,6 +578,10 @@ func (m *Model) keyFiles(key string) tea.Cmd {
 		return m.toggleViewed(m.tree.selectedFile(), false)
 	case "d":
 		m.view.toggleMode()
+	case "e":
+		if fi := m.tree.selectedFile(); fi >= 0 && fi == m.current {
+			return m.editFile(false)
+		}
 	}
 	if moved {
 		// Preview the file under the cursor, like lazygit.
@@ -602,6 +623,8 @@ func (m *Model) keyView(key string) tea.Cmd {
 		m.view.anchor = -1
 	case " ":
 		return m.toggleViewed(m.current, true)
+	case "e":
+		return m.editFile(true)
 	case "c":
 		if m.reviewBusy {
 			m.setStatus("a review operation is in progress", true)
@@ -628,6 +651,17 @@ func (m *Model) keyView(key string) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// editFile opens the displayed file in an editor, at the cursor line or at the
+// first change.
+func (m *Model) editFile(fromCursor bool) tea.Cmd {
+	path, line, err := m.view.editTarget(fromCursor)
+	if err != nil {
+		m.setErr(err)
+		return nil
+	}
+	return openInEditor(path, line, m.detail.HeadOID)
 }
 
 type deleteRequestMsg struct {
@@ -714,9 +748,9 @@ func (m *Model) statusBar() string {
 		case panePRs:
 			left = " " + hints("enter", "open", "/", "filter", "s", "state", "o", "browser", "?", "help")
 		case paneFiles:
-			left = " " + hints("enter", "open", "space", "viewed", "]/[", "next/prev", "d", "full/hunks", "?", "help")
+			left = " " + hints("enter", "open", "space", "viewed", "]/[", "next/prev", "d", "full/hunks", "e", "edit", "?", "help")
 		default:
-			left = " " + hints("c", "comment", "v", "range", "space", "viewed", "n/N", "change", "S", "submit", "?", "help")
+			left = " " + hints("c", "comment", "v", "range", "space", "viewed", "n/N", "change", "e", "edit", "S", "submit", "?", "help")
 		}
 	}
 	var right []string

@@ -313,6 +313,37 @@ func (v *fileView) commentTarget() (gh.NewThread, string, error) {
 	return t, desc, nil
 }
 
+// editTarget returns the head path and line to open in an editor: the line
+// under the cursor, or the first change when fromCursor is false. Deleted
+// lines resolve to the nearest head line, preferring the following one.
+func (v *fileView) editTarget(fromCursor bool) (string, int, error) {
+	if v.file == nil || v.data == nil {
+		return "", 0, errors.New("no file loaded")
+	}
+	if v.file.Status == "removed" || v.file.Status == "DELETED" {
+		return "", 0, errors.New("file is deleted in this PR")
+	}
+	start := v.cursor
+	if !fromCursor {
+		start = 0
+		if len(v.changes) > 0 {
+			start = v.changes[0]
+		}
+	}
+	newNo := func(r int) int { return v.data.lines[v.rows[r].line].NewNo }
+	for r := start; r < len(v.rows); r++ {
+		if n := newNo(r); n > 0 {
+			return v.file.Path, n, nil
+		}
+	}
+	for r := min(start, len(v.rows)) - 1; r >= 0; r-- {
+		if n := newNo(r); n > 0 {
+			return v.file.Path, n, nil
+		}
+	}
+	return v.file.Path, 1, nil
+}
+
 // pendingCommentAtCursor returns the pending comment under the cursor, if any.
 func (v *fileView) pendingCommentAtCursor() string {
 	if v.cursor < len(v.rows) && v.rows[v.cursor].pending {

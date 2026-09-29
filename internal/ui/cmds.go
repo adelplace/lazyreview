@@ -2,7 +2,10 @@ package ui
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -42,6 +45,10 @@ type (
 		path   string
 		viewed bool
 		err    error
+	}
+	editDoneMsg struct {
+		warn string
+		err  error
 	}
 	reviewMsg struct {
 		number int
@@ -204,4 +211,58 @@ func openBrowser(url string) tea.Cmd {
 		_ = exec.Command(name, url).Start()
 		return nil
 	}
+}
+
+// openInEditor opens path (relative to the repository root) at line. Inside a
+// Neovim terminal ($NVIM set, e.g. a LazyVim float) the file opens in the
+// parent Neovim and the terminal window is hidden; otherwise $EDITOR runs.
+func openInEditor(path string, line int, headOID string) tea.Cmd {
+	root, err := gitOutput("rev-parse", "--show-toplevel")
+	if err != nil {
+		return msgCmd(editDoneMsg{err: fmt.Errorf("not in a git checkout: %w", err)})
+	}
+	abs := filepath.Join(root, filepath.FromSlash(path))
+	if _, err := os.Stat(abs); err != nil {
+		return msgCmd(editDoneMsg{err: fmt.Errorf("%s not found in the local checkout", path)})
+	}
+	var warn string
+	if head, err := gitOutput("rev-parse", "HEAD"); err == nil && head != headOID {
+		warn = "local checkout is not the PR head, lines may differ"
+	}
+	if server := os.Getenv("NVIM"); server != "" {
+		return func() tea.Msg {
+			err := exec.Command("nvim", "--server", server, "--remote-send", nvimOpenKeys(abs, line)).Run()
+			return editDoneMsg{warn: warn, err: err}
+		}
+	}
+	args := append(editorArgs(), fmt.Sprintf("+%d", line), abs)
+	return tea.ExecProcess(exec.Command(args[0], args[1:]...), func(err error) tea.Msg {
+		return editDoneMsg{warn: warn, err: err}
+	})
+}
+
+func gitOutput(args ...string) (string, error) {
+	out, err := exec.Command("git", args...).Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+func msgCmd(msg tea.Msg) tea.Cmd { return func() tea.Msg { return msg } }
+
+// nvimOpenKeys is the --remote-send input hiding the current (terminal)
+// window and editing path at line in the window underneath.
+func nvimOpenKeys(path string, line int) string {
+	cmd := fmt.Sprintf("silent! hide | edit +%d %s", line, vimEscape(path))
+	return "<Cmd>" + strings.ReplaceAll(cmd, "<", "<lt>") + "<CR>"
+}
+
+// vimEscape escapes a file name for an Ex command, like fnameescape().
+func vimEscape(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if strings.ContainsRune(" \t\n*?[{`$\\%#'\"|!<", r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
