@@ -16,6 +16,8 @@ import (
 
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/oauth2"
+
+	"github.com/adelplace/lazyreviewer/internal/store"
 )
 
 const restBase = "https://api.github.com"
@@ -25,6 +27,8 @@ type Client struct {
 	Owner, Name string
 	gql         *githubv4.Client
 	http        *http.Client
+	// Cache, when set, keeps file contents across runs.
+	Cache *store.Store
 }
 
 // Token returns GITHUB_TOKEN / GH_TOKEN, or falls back to `gh auth token`.

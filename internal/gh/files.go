@@ -11,10 +11,14 @@ import (
 // FileContent returns the raw content of path at the given commit.
 // binary is true when the file contains NUL bytes.
 func (c *Client) FileContent(ctx context.Context, oid, path string) (content string, binary bool, err error) {
-	p := fmt.Sprintf("/repos/%s/%s/contents/%s?ref=%s", c.Owner, c.Name, escapePath(path), oid)
-	body, err := c.rest(ctx, p, "application/vnd.github.raw+json", nil)
-	if err != nil {
-		return "", false, err
+	body, ok := c.Cache.Blob(oid, path)
+	if !ok {
+		p := fmt.Sprintf("/repos/%s/%s/contents/%s?ref=%s", c.Owner, c.Name, escapePath(path), oid)
+		body, err = c.rest(ctx, p, "application/vnd.github.raw+json", nil)
+		if err != nil {
+			return "", false, err
+		}
+		c.Cache.PutBlob(oid, path, body)
 	}
 	if bytes.IndexByte(body[:min(len(body), 8000)], 0) >= 0 {
 		return "", true, nil

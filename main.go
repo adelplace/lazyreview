@@ -5,11 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/adelplace/lazyreviewer/internal/gh"
 	"github.com/adelplace/lazyreviewer/internal/highlight"
+	"github.com/adelplace/lazyreviewer/internal/store"
 	"github.com/adelplace/lazyreviewer/internal/ui"
 )
 
@@ -24,6 +26,9 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+// cacheMaxAge is how long unused cached PRs and file contents are kept.
+const cacheMaxAge = 30 * 24 * time.Hour
 
 func run(repo string, pr int, theme string) error {
 	var owner, name string
@@ -42,7 +47,11 @@ func run(repo string, pr int, theme string) error {
 	}
 	highlight.SetStyle(theme)
 
-	p := tea.NewProgram(ui.New(gh.New(token, owner, name), pr), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	client := gh.New(token, owner, name)
+	client.Cache = store.Open(owner, name)
+	go client.Cache.Prune(cacheMaxAge)
+
+	p := tea.NewProgram(ui.New(client, pr), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err = p.Run()
 	return err
 }

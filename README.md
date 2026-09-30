@@ -22,6 +22,11 @@ lazyreviewer --repo owner/name --pr 42
 lazyreviewer --theme dracula         # any chroma style
 ```
 
+On restart, the last PR, file and line are restored. PR lists, PR details and
+file contents are cached under `~/.cache/lazyreviewer/<owner>/<name>/` and shown
+immediately, then refreshed in the background (edits wait for the refresh).
+Unused entries are pruned after 30 days.
+
 Press `?` for all keys. The essentials:
 
 | Key | Action |

@@ -22,13 +22,15 @@ const netTimeout = 30 * time.Second
 
 type (
 	prsMsg struct {
-		state int
-		prs   []gh.PR
-		err   error
+		state  int
+		prs    []gh.PR
+		cached bool // read from the disk cache, a network reply follows
+		err    error
 	}
 	detailMsg struct {
 		number int
 		d      *gh.Detail
+		cached bool // read from the disk cache, a network reply follows
 		err    error
 	}
 	contentMsg struct {
@@ -59,12 +61,29 @@ type (
 	}
 )
 
+func prsKey(state int) string     { return fmt.Sprintf("prs-%s", prStates[state].name) }
+func detailKey(number int) string { return fmt.Sprintf("pr-%d", number) }
+
 func loadPRs(c *gh.Client, state int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), netTimeout)
 		defer cancel()
 		prs, err := c.ListPRs(ctx, prStates[state].states)
+		if err == nil {
+			c.Cache.Save(prsKey(state), prs)
+		}
 		return prsMsg{state: state, prs: prs, err: err}
+	}
+}
+
+// cachedPRs replays the last PR list fetched for state, if any.
+func cachedPRs(c *gh.Client, state int) tea.Cmd {
+	return func() tea.Msg {
+		var prs []gh.PR
+		if !c.Cache.Load(prsKey(state), &prs) {
+			return nil
+		}
+		return prsMsg{state: state, prs: prs, cached: true}
 	}
 }
 
@@ -73,7 +92,21 @@ func loadDetail(c *gh.Client, number int) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), netTimeout)
 		defer cancel()
 		d, err := c.GetDetail(ctx, number)
+		if err == nil {
+			c.Cache.Save(detailKey(number), d)
+		}
 		return detailMsg{number: number, d: d, err: err}
+	}
+}
+
+// cachedDetail replays the last detail fetched for PR number, if any.
+func cachedDetail(c *gh.Client, number int) tea.Cmd {
+	return func() tea.Msg {
+		var d gh.Detail
+		if !c.Cache.Load(detailKey(number), &d) || d.Number != number {
+			return nil
+		}
+		return detailMsg{number: number, d: &d, cached: true}
 	}
 }
 

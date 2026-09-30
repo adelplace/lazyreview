@@ -35,13 +35,16 @@ type Model struct {
 	// lastLeft is the left pane focused last, where ctrl+h returns to.
 	lastLeft pane
 
-	prs     prList
-	detail  *gh.Detail
-	loadPR  int // PR number whose detail is loading, 0 when idle
-	tree    fileTree
-	current int // index in detail.Files, -1 when none
-	view    fileView
-	threads map[string]int // thread count per path
+	prs    prList
+	detail *gh.Detail
+	loadPR int // PR number whose detail is loading, 0 when idle
+	// fromCache is set while detail comes from the disk cache and may be
+	// stale; mutations wait for the network copy.
+	fromCache bool
+	tree      fileTree
+	current   int // index in detail.Files, -1 when none
+	view      fileView
+	threads   map[string]int // thread count per path
 
 	cache    map[string]*fileData
 	inflight map[string]bool
@@ -58,6 +61,9 @@ type Model struct {
 	// dragging is set while the left button is held in the diff pane.
 	dragging bool
 	dragFrom int // diff row where the drag started
+
+	restore *session // saved position waiting for its PR and file, nil when done
+	saved   session  // last session written to disk
 }
 
 func New(c *gh.Client, openPR int) Model {
@@ -76,13 +82,14 @@ func New(c *gh.Client, openPR int) Model {
 		lastLeft: paneFiles,
 	}
 	m.prs.loading = true
+	m.loadSession(openPR)
 	return m
 }
 
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{loadPRs(m.client, 0), m.spin.Tick}
+	cmds := []tea.Cmd{cachedPRs(m.client, m.prs.state), loadPRs(m.client, m.prs.state), m.spin.Tick}
 	if m.loadPR > 0 {
-		cmds = append(cmds, loadDetail(m.client, m.loadPR))
+		cmds = append(cmds, cachedDetail(m.client, m.loadPR), loadDetail(m.client, m.loadPR))
 	}
 	return tea.Batch(cmds...)
 }
@@ -103,6 +110,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.focus != paneView {
 		m.lastLeft = m.focus
 	}
+	m.saveSession()
 	if m.busy() && !m.spinning {
 		m.spinning = true
 		cmd = tea.Batch(cmd, m.spin.Tick)
@@ -128,15 +136,20 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return cmd
 
 	case prsMsg:
-		if msg.state != m.prs.state {
+		// A cached list arriving after the network one is older: drop it.
+		if msg.state != m.prs.state || (msg.cached && !m.prs.loading) {
 			return nil
 		}
-		m.prs.loading = false
+		m.prs.loading = msg.cached
 		if msg.err != nil {
 			m.setErr(msg.err)
 			return nil
 		}
+		first := len(m.prs.all) == 0
 		m.prs.setPRs(msg.prs)
+		if first {
+			m.prs.selectNumber(m.activePR())
+		}
 		return nil
 
 	case detailMsg:
@@ -161,6 +174,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			} else {
 				m.view.setFile(f, msg.data, m.detail.Review.Threads)
 			}
+			m.applyRestore()
 		}
 		return cmd
 
@@ -258,9 +272,17 @@ func (m *Model) onDetail(msg detailMsg) tea.Cmd {
 	if msg.number != m.loadPR {
 		return nil
 	}
-	m.loadPR = 0
+	if !msg.cached {
+		m.loadPR = 0
+	}
 	if msg.err != nil {
+		m.restore = nil
 		m.setErr(fmt.Errorf("PR #%d: %w", msg.number, msg.err))
+		return nil
+	}
+	m.fromCache = msg.cached
+	if m.detail != nil && m.detail.Number == msg.number && sameFiles(m.detail, msg.d) {
+		m.refreshDetail(msg.d)
 		return nil
 	}
 	// Keep the current file when refreshing the same PR.
@@ -269,6 +291,8 @@ func (m *Model) onDetail(msg detailMsg) tea.Cmd {
 		if f := m.currentFile(); f != nil {
 			keepPath = f.Path
 		}
+	} else if m.restore != nil && m.restore.PR == msg.number {
+		keepPath = m.restore.File
 	}
 	m.detail = msg.d
 	m.tree = newFileTree(msg.d.Files)
@@ -289,13 +313,67 @@ func (m *Model) onDetail(msg detailMsg) tea.Cmd {
 		}
 	}
 	if target < 0 {
+		m.restore = nil
 		m.setStatus(fmt.Sprintf("PR #%d has no files", msg.number), false)
 		return nil
 	}
 	if keepPath == "" {
 		m.focus = paneFiles
 	}
-	return m.openFile(target)
+	cmd := m.openFile(target)
+	m.applyRestore()
+	return cmd
+}
+
+// sameFiles reports whether b has the same files and patches as a, so only
+// its viewed states and review threads may differ.
+func sameFiles(a, b *gh.Detail) bool {
+	if a.HeadOID != b.HeadOID || a.BaseOID != b.BaseOID || len(a.Files) != len(b.Files) {
+		return false
+	}
+	for i := range a.Files {
+		if a.Files[i].Path != b.Files[i].Path {
+			return false
+		}
+	}
+	return true
+}
+
+// refreshDetail updates the displayed PR in place, keeping the file view, its
+// scroll position and the tree selection.
+func (m *Model) refreshDetail(d *gh.Detail) {
+	for i := range m.detail.Files {
+		m.detail.Files[i].Viewed = d.Files[i].Viewed
+	}
+	m.detail.PR, m.detail.Review = d.PR, d.Review
+	m.onThreadsChanged()
+}
+
+// activePR is the PR displayed or being loaded, 0 when none.
+func (m *Model) activePR() int {
+	if m.loadPR != 0 {
+		return m.loadPR
+	}
+	if m.detail != nil {
+		return m.detail.Number
+	}
+	return 0
+}
+
+// stale reports, and explains in the status bar, that the displayed PR comes
+// from the cache and must be refreshed before it can be changed: a stale
+// pending review ID would start a second review, a stale viewed state would
+// toggle the wrong way.
+func (m *Model) stale() bool {
+	if m.detail == nil || !m.fromCache {
+		return false
+	}
+	if m.loadPR == m.detail.Number {
+		m.setStatus("refreshing the PR, try again in a moment", true)
+	} else {
+		m.setStatus("PR shown from cache, press r to refresh", true)
+	}
+	return true
 }
 
 func (m *Model) onThreadsChanged() {
@@ -351,7 +429,7 @@ func (m *Model) fetch(fi int) tea.Cmd {
 }
 
 func (m *Model) toggleViewed(fi int, advance bool) tea.Cmd {
-	if m.detail == nil || fi < 0 {
+	if m.detail == nil || fi < 0 || m.stale() {
 		return nil
 	}
 	f := &m.detail.Files[fi]
@@ -451,7 +529,7 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 		}
 		return nil
 	case "S":
-		if m.detail == nil {
+		if m.detail == nil || m.stale() {
 			return nil
 		}
 		if m.reviewBusy {
@@ -518,7 +596,7 @@ func (m *Model) keyPRs(key string) tea.Cmd {
 		m.prs.state = (m.prs.state + 1) % len(prStates)
 		m.prs.loading = true
 		m.prs.cursor = 0
-		return loadPRs(m.client, m.prs.state)
+		return tea.Batch(cachedPRs(m.client, m.prs.state), loadPRs(m.client, m.prs.state))
 	case "enter", " ":
 		if m.prOpen() {
 			m.focus = paneFiles
@@ -542,7 +620,8 @@ func (m *Model) openPR() tea.Cmd {
 		return nil
 	}
 	m.loadPR = p.Number
-	return loadDetail(m.client, p.Number)
+	m.restore = nil
+	return tea.Batch(cachedDetail(m.client, p.Number), loadDetail(m.client, p.Number))
 }
 
 func (m *Model) keyFiles(key string) tea.Cmd {
@@ -626,6 +705,9 @@ func (m *Model) keyView(key string) tea.Cmd {
 	case "e":
 		return m.editFile(true)
 	case "c":
+		if m.stale() {
+			return nil
+		}
 		if m.reviewBusy {
 			m.setStatus("a review operation is in progress", true)
 			return nil
@@ -637,6 +719,9 @@ func (m *Model) keyView(key string) tea.Cmd {
 		}
 		m.modal = newCommentModal(t, desc)
 	case "x":
+		if m.stale() {
+			return nil
+		}
 		id := m.view.pendingCommentAtCursor()
 		if id == "" {
 			m.setStatus("no pending comment under the cursor", true)
@@ -718,11 +803,14 @@ func (m Model) View() string {
 	filesTitle := "Files"
 	var files []string
 	switch {
+	case m.detail != nil && (m.loadPR == 0 || m.loadPR == m.detail.Number):
+		filesTitle = fmt.Sprintf("Files #%d · %d/%d viewed", m.detail.Number, m.tree.viewedCount(), len(m.detail.Files))
+		if m.loadPR != 0 {
+			filesTitle += " …"
+		}
+		files = m.tree.view(leftW-2, filesH-2, m.focus == paneFiles, m.current, m.threads)
 	case m.loadPR != 0:
 		filesTitle = fmt.Sprintf("Files · loading #%d", m.loadPR)
-	case m.detail != nil:
-		filesTitle = fmt.Sprintf("Files #%d · %d/%d viewed", m.detail.Number, m.tree.viewedCount(), len(m.detail.Files))
-		files = m.tree.view(leftW-2, filesH-2, m.focus == paneFiles, m.current, m.threads)
 	}
 	filesPanel := panel(filesTitle, files, leftW, filesH, m.focus == paneFiles)
 

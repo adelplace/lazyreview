@@ -46,11 +46,7 @@ func (l *prList) setPRs(prs []gh.PR) {
 	}
 	l.all = prs
 	l.applyFilter()
-	for i, p := range l.items {
-		if p.Number == sel {
-			l.cursor = i
-		}
-	}
+	l.selectNumber(sel)
 }
 
 func (l *prList) applyFilter() {
@@ -70,6 +66,15 @@ func (l *prList) selected() *gh.PR {
 		return nil
 	}
 	return &l.items[l.cursor]
+}
+
+// selectNumber moves the cursor to PR number, if listed.
+func (l *prList) selectNumber(number int) {
+	for i, p := range l.items {
+		if p.Number == number {
+			l.cursor = i
+		}
+	}
 }
 
 func (l *prList) move(delta int) {

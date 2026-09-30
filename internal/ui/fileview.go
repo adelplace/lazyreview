@@ -81,6 +81,26 @@ func (v *fileView) setFile(f *gh.File, d *fileData, threads []gh.Thread) {
 	}
 }
 
+// gotoLine moves the cursor to new-side line n, a third down the screen, when
+// that line is displayed.
+func (v *fileView) gotoLine(n int) {
+	for r, rw := range v.rows {
+		if rw.kind == rowCode && v.data.lines[rw.line].NewNo == n {
+			v.cursor = r
+			v.offset = max(r-v.h/3, 0)
+			return
+		}
+	}
+}
+
+// cursorLine is the new-side line number under the cursor, 0 when none.
+func (v *fileView) cursorLine() int {
+	if v.data == nil || v.cursor >= len(v.rows) {
+		return 0
+	}
+	return v.data.lines[v.rows[v.cursor].line].NewNo
+}
+
 func (v *fileView) resize(w, h int) {
 	if w != v.w {
 		v.w, v.h = w, h
