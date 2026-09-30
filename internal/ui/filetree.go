@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/adelplace/lazyreviewer/internal/gh"
-	"github.com/adelplace/lazyreviewer/internal/term"
+	"github.com/adelplace/lazyreview/internal/gh"
+	"github.com/adelplace/lazyreview/internal/term"
 )
 
 type treeNode struct {

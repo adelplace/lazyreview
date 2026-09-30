@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/adelplace/lazyreviewer/internal/diff"
-	"github.com/adelplace/lazyreviewer/internal/gh"
-	"github.com/adelplace/lazyreviewer/internal/highlight"
+	"github.com/adelplace/lazyreview/internal/diff"
+	"github.com/adelplace/lazyreview/internal/gh"
+	"github.com/adelplace/lazyreview/internal/highlight"
 )
 
 // head: a NEW b c d   base: a b c gone d

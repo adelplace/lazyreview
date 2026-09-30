@@ -1,4 +1,4 @@
-// lazyreviewer is a terminal UI to review GitHub pull requests.
+// lazyreview is a terminal UI to review GitHub pull requests.
 package main
 
 import (
@@ -9,10 +9,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/adelplace/lazyreviewer/internal/gh"
-	"github.com/adelplace/lazyreviewer/internal/highlight"
-	"github.com/adelplace/lazyreviewer/internal/store"
-	"github.com/adelplace/lazyreviewer/internal/ui"
+	"github.com/adelplace/lazyreview/internal/gh"
+	"github.com/adelplace/lazyreview/internal/highlight"
+	"github.com/adelplace/lazyreview/internal/store"
+	"github.com/adelplace/lazyreview/internal/ui"
 )
 
 func main() {
@@ -22,7 +22,7 @@ func main() {
 	flag.Parse()
 
 	if err := run(*repo, *pr, *theme); err != nil {
-		fmt.Fprintln(os.Stderr, "lazyreviewer:", err)
+		fmt.Fprintln(os.Stderr, "lazyreview:", err)
 		os.Exit(1)
 	}
 }

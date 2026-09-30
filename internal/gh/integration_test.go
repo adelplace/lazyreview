@@ -2,7 +2,7 @@
 
 // Read-only checks against the real GitHub API:
 //
-//	LAZYREVIEWER_TEST_REPO=owner/name go test -tags integration ./internal/gh/
+//	LAZYREVIEW_TEST_REPO=owner/name go test -tags integration ./internal/gh/
 package gh
 
 import (
@@ -14,13 +14,13 @@ import (
 
 	"github.com/shurcooL/githubv4"
 
-	"github.com/adelplace/lazyreviewer/internal/diff"
+	"github.com/adelplace/lazyreview/internal/diff"
 )
 
 func TestIntegrationAnnotateRealPRs(t *testing.T) {
-	repo := os.Getenv("LAZYREVIEWER_TEST_REPO")
+	repo := os.Getenv("LAZYREVIEW_TEST_REPO")
 	if repo == "" {
-		t.Skip("LAZYREVIEWER_TEST_REPO not set")
+		t.Skip("LAZYREVIEW_TEST_REPO not set")
 	}
 	owner, name, err := ParseRepo(repo)
 	if err != nil {

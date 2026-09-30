@@ -7,8 +7,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/shurcooL/githubv4"
 
-	"github.com/adelplace/lazyreviewer/internal/gh"
-	"github.com/adelplace/lazyreviewer/internal/term"
+	"github.com/adelplace/lazyreview/internal/gh"
+	"github.com/adelplace/lazyreview/internal/term"
 )
 
 var prStates = []struct {

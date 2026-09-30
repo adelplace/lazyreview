@@ -1,4 +1,4 @@
-module github.com/adelplace/lazyreviewer
+module github.com/adelplace/lazyreview
 
 go 1.27.1
 

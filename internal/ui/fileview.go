@@ -9,10 +9,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/adelplace/lazyreviewer/internal/diff"
-	"github.com/adelplace/lazyreviewer/internal/gh"
-	"github.com/adelplace/lazyreviewer/internal/highlight"
-	"github.com/adelplace/lazyreviewer/internal/term"
+	"github.com/adelplace/lazyreview/internal/diff"
+	"github.com/adelplace/lazyreview/internal/gh"
+	"github.com/adelplace/lazyreview/internal/highlight"
+	"github.com/adelplace/lazyreview/internal/term"
 )
 
 // fileData is a file ready for display, computed off the UI goroutine.

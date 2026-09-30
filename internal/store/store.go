@@ -25,7 +25,7 @@ func Open(owner, name string) *Store {
 	if err != nil {
 		return nil
 	}
-	return OpenDir(filepath.Join(base, "lazyreviewer", owner, name))
+	return OpenDir(filepath.Join(base, "lazyreview", owner, name))
 }
 
 // OpenDir returns a store rooted at dir, or nil when it cannot be created.

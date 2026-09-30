@@ -7,10 +7,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/adelplace/lazyreviewer/internal/diff"
-	"github.com/adelplace/lazyreviewer/internal/gh"
-	"github.com/adelplace/lazyreviewer/internal/highlight"
-	"github.com/adelplace/lazyreviewer/internal/store"
+	"github.com/adelplace/lazyreview/internal/diff"
+	"github.com/adelplace/lazyreview/internal/gh"
+	"github.com/adelplace/lazyreview/internal/highlight"
+	"github.com/adelplace/lazyreview/internal/store"
 )
 
 func TestFocusDir(t *testing.T) {
@@ -181,5 +181,79 @@ func TestSessionIgnoredForOtherPR(t *testing.T) {
 	m = New(m.client, 9)
 	if m.loadPR != 9 || m.restore != nil || m.prs.state != 1 {
 		t.Fatalf("loadPR=%d restore=%v state=%d, want 9 nil 1", m.loadPR, m.restore, m.prs.state)
+	}
+}
+
+func runeKey(s string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+}
+
+func TestScreenModeLayout(t *testing.T) {
+	tests := []struct {
+		name          string
+		focus         pane
+		screen        screenMode
+		leftW, prH    int
+		hidden, shown string // pane titles expected absent / present
+	}{
+		{"normal", paneFiles, screenNormal, 32, 15, "", "Pull requests"},
+		{"half files", paneFiles, screenHalf, 60, 0, "Pull requests", "Files"},
+		{"half prs", panePRs, screenHalf, 60, 39, "Files", "Pull requests"},
+		{"full files", paneFiles, screenFull, 120, 0, "Pull requests", "Files"},
+		{"full prs", panePRs, screenFull, 120, 39, "Files", "Pull requests"},
+		{"half view", paneView, screenHalf, 0, 15, "Files", ""},
+		{"full view", paneView, screenFull, 0, 15, "Pull requests", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := mouseModel(t).(Model)
+			m.focus, m.screen = tt.focus, tt.screen
+			leftW, rightW, _ := m.layout()
+			if leftW != tt.leftW || rightW != 120-tt.leftW || m.prHeight() != tt.prH {
+				t.Errorf("leftW=%d rightW=%d prH=%d, want %d %d %d", leftW, rightW, m.prHeight(), tt.leftW, 120-tt.leftW, tt.prH)
+			}
+			tm, _ := m.Update(nil)
+			out := tm.View()
+			if n := strings.Count(out, "\n") + 1; n != 40 {
+				t.Errorf("rendered %d lines, want 40", n)
+			}
+			if tt.hidden != "" && strings.Contains(out, "─ "+tt.hidden) {
+				t.Errorf("%s pane should be hidden", tt.hidden)
+			}
+			if tt.shown != "" && !strings.Contains(out, "─ "+tt.shown) {
+				t.Errorf("%s pane should be shown", tt.shown)
+			}
+		})
+	}
+}
+
+func TestScreenModeKeys(t *testing.T) {
+	m := mouseModel(t)
+	for _, want := range []screenMode{screenHalf, screenFull, screenNormal} {
+		m, _ = m.Update(runeKey("+"))
+		if got := m.(Model).screen; got != want {
+			t.Fatalf("+: screen = %d, want %d", got, want)
+		}
+	}
+	for _, want := range []screenMode{screenFull, screenHalf, screenNormal} {
+		m, _ = m.Update(runeKey("_"))
+		if got := m.(Model).screen; got != want {
+			t.Fatalf("_: screen = %d, want %d", got, want)
+		}
+	}
+}
+
+func TestScreenModeResizesDiff(t *testing.T) {
+	m := mouseModel(t)
+	mm := m.(Model)
+	mm.focus = paneView
+	m, _ = mm.Update(runeKey("+"))
+	if w := m.(Model).view.w; w != 118 {
+		t.Errorf("diff width = %d, want 118", w)
+	}
+	// A click on the hidden left column lands in the full-width diff.
+	m, _ = m.Update(press(5, 10))
+	if f := m.(Model).focus; f != paneView {
+		t.Errorf("focus = %d, want diff", f)
 	}
 }

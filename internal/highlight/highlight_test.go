@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/adelplace/lazyreviewer/internal/diff"
+	"github.com/adelplace/lazyreview/internal/diff"
 )
 
 func TestLinesAlignment(t *testing.T) {

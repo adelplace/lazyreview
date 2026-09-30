@@ -13,9 +13,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/shurcooL/githubv4"
 
-	"github.com/adelplace/lazyreviewer/internal/diff"
-	"github.com/adelplace/lazyreviewer/internal/gh"
-	"github.com/adelplace/lazyreviewer/internal/highlight"
+	"github.com/adelplace/lazyreview/internal/diff"
+	"github.com/adelplace/lazyreview/internal/gh"
+	"github.com/adelplace/lazyreview/internal/highlight"
 )
 
 const netTimeout = 30 * time.Second

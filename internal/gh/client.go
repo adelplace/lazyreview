@@ -1,4 +1,4 @@
-// Package gh wraps the GitHub GraphQL and REST APIs used by lazyreviewer.
+// Package gh wraps the GitHub GraphQL and REST APIs used by lazyreview.
 package gh
 
 import (
@@ -17,7 +17,7 @@ import (
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/oauth2"
 
-	"github.com/adelplace/lazyreviewer/internal/store"
+	"github.com/adelplace/lazyreview/internal/store"
 )
 
 const restBase = "https://api.github.com"

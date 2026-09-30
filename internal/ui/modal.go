@@ -11,8 +11,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/shurcooL/githubv4"
 
-	"github.com/adelplace/lazyreviewer/internal/gh"
-	"github.com/adelplace/lazyreviewer/internal/term"
+	"github.com/adelplace/lazyreview/internal/gh"
+	"github.com/adelplace/lazyreview/internal/term"
 )
 
 // modal is a dialog drawn over the main layout. update returns nil to close.
@@ -63,7 +63,7 @@ func editorArgs() []string {
 
 // openEditor edits text in $VISUAL / $EDITOR and reports the result as editorDoneMsg.
 func openEditor(text string) tea.Cmd {
-	f, err := os.CreateTemp("", "lazyreviewer-*.md")
+	f, err := os.CreateTemp("", "lazyreview-*.md")
 	if err != nil {
 		return func() tea.Msg { return editorDoneMsg{err: err} }
 	}
@@ -244,6 +244,7 @@ var helpText = [][2]string{
 	{"tab / shift+tab", "cycle panes"},
 	{"h / l", "previous / next pane"},
 	{"ctrl+h/j/k/l", "move to pane left / down / up / right"},
+	{"+ _", "enlarge / shrink focused pane (normal, half, full)"},
 	{"j k ↑ ↓", "move"},
 	{"g G ctrl+d ctrl+u", "top, bottom, half page (diff, also from files)"},
 	{"enter", "open PR / file, fold directory"},

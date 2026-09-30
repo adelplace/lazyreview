@@ -1,4 +1,4 @@
-// Package ui implements the Bubble Tea interface of lazyreviewer.
+// Package ui implements the Bubble Tea interface of lazyreview.
 package ui
 
 import (
@@ -10,8 +10,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/adelplace/lazyreviewer/internal/gh"
-	"github.com/adelplace/lazyreviewer/internal/term"
+	"github.com/adelplace/lazyreview/internal/gh"
+	"github.com/adelplace/lazyreview/internal/term"
 )
 
 type pane int
@@ -20,6 +20,16 @@ const (
 	panePRs pane = iota
 	paneFiles
 	paneView
+)
+
+// screenMode is how much room the focused pane takes, cycled with + and _
+// like lazygit.
+type screenMode int
+
+const (
+	screenNormal screenMode = iota
+	screenHalf
+	screenFull
 )
 
 // prefetchAhead is how many following files are loaded in the background.
@@ -34,6 +44,7 @@ type Model struct {
 	focus  pane
 	// lastLeft is the left pane focused last, where ctrl+h returns to.
 	lastLeft pane
+	screen   screenMode
 
 	prs    prList
 	detail *gh.Detail
@@ -122,8 +133,6 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
-		_, rightW, bodyH := m.layout()
-		m.view.resize(rightW-2, bodyH-2)
 		return nil
 
 	case spinner.TickMsg:
@@ -501,6 +510,12 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 	case "shift+tab":
 		m.focus = (m.focus + 2) % 3
 		return nil
+	case "+":
+		m.screen = (m.screen + 1) % 3
+		return nil
+	case "_":
+		m.screen = (m.screen + 2) % 3
+		return nil
 	case "h", "left":
 		m.focus = max(m.focus-1, panePRs)
 		return nil
@@ -756,10 +771,13 @@ type deleteRequestMsg struct {
 
 // --- layout & rendering ---
 
-// syncScroll keeps every cursor visible. It runs after each update because
-// View has a value receiver and cannot persist scroll offsets.
+// syncScroll sizes the diff and keeps every cursor visible. It runs after
+// each update because View has a value receiver and cannot persist them.
 func (m *Model) syncScroll() {
-	leftW, _, _ := m.layout()
+	leftW, rightW, bodyH := m.layout()
+	if rightW > 0 {
+		m.view.resize(rightW-2, bodyH-2)
+	}
 	prH := m.prHeight()
 	m.prs.filter.Width = max(leftW-5, 1)
 	m.prs.offset = scroll(m.prs.cursor, m.prs.offset, m.prs.rows(prH-2), len(m.prs.items))
@@ -772,11 +790,28 @@ func (m *Model) layout() (leftW, rightW, bodyH int) {
 	if m.w < 100 {
 		leftW = m.w / 3
 	}
+	switch {
+	case m.screen == screenNormal:
+	case m.focus == paneView:
+		leftW = 0
+	case m.screen == screenHalf:
+		leftW = m.w / 2
+	default:
+		leftW = m.w
+	}
 	return leftW, m.w - leftW, m.h - 1
 }
 
 func (m *Model) prHeight() int {
 	_, _, bodyH := m.layout()
+	if m.screen != screenNormal {
+		switch m.focus {
+		case panePRs:
+			return bodyH
+		case paneFiles:
+			return 0
+		}
+	}
 	return clamp(bodyH*2/5, 5, bodyH-5)
 }
 
@@ -798,7 +833,10 @@ func (m Model) View() string {
 	if m.detail != nil {
 		active = m.detail.Number
 	}
-	prPanel := panel(m.prs.title(), m.prs.view(leftW-2, prH-2, m.focus == panePRs, active), leftW, prH, m.focus == panePRs)
+	var left, cols []string
+	if leftW > 0 && prH > 0 {
+		left = append(left, panel(m.prs.title(), m.prs.view(leftW-2, prH-2, m.focus == panePRs, active), leftW, prH, m.focus == panePRs))
+	}
 
 	filesTitle := "Files"
 	var files []string
@@ -812,11 +850,17 @@ func (m Model) View() string {
 	case m.loadPR != 0:
 		filesTitle = fmt.Sprintf("Files · loading #%d", m.loadPR)
 	}
-	filesPanel := panel(filesTitle, files, leftW, filesH, m.focus == paneFiles)
+	if leftW > 0 && filesH > 0 {
+		left = append(left, panel(filesTitle, files, leftW, filesH, m.focus == paneFiles))
+	}
+	if len(left) > 0 {
+		cols = append(cols, lipgloss.JoinVertical(lipgloss.Left, left...))
+	}
+	if rightW > 0 {
+		cols = append(cols, panel(m.view.title(), m.view.view(m.focus == paneView), rightW, bodyH, m.focus == paneView))
+	}
 
-	viewPanel := panel(m.view.title(), m.view.view(m.focus == paneView), rightW, bodyH, m.focus == paneView)
-
-	body := lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.JoinVertical(lipgloss.Left, prPanel, filesPanel), viewPanel)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
 	out := body + "\n" + m.statusBar()
 	if m.modal != nil {
 		out = overlay(out, m.modal.view(m.w), m.w, m.h)
@@ -844,6 +888,9 @@ func (m *Model) statusBar() string {
 	var right []string
 	if m.busy() {
 		right = append(right, m.spin.View())
+	}
+	if m.screen != screenNormal {
+		right = append(right, stDim.Render([...]string{"", "half", "full"}[m.screen]))
 	}
 	if n := m.pendingCount(); n > 0 {
 		right = append(right, stOrange.Render(fmt.Sprintf("%d pending", n)))

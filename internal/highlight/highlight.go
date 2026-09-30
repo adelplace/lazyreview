@@ -10,8 +10,8 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/adelplace/lazyreviewer/internal/diff"
-	"github.com/adelplace/lazyreviewer/internal/term"
+	"github.com/adelplace/lazyreview/internal/diff"
+	"github.com/adelplace/lazyreview/internal/term"
 )
 
 // Beyond this many bytes, files are shown without syntax colors.
