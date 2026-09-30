@@ -10,3 +10,7 @@ outputs = ["lazyreview"]
 [tasks.test]
 description = "Run unit tests"
 run = "go test ./..."
+
+[tasks.demo]
+description = "Record demo/demo.gif (needs vhs, ttyd and demo/setup.sh run once)"
+run = "demo/reset.sh && go build -o lazyreview . && vhs demo/demo.tape; demo/reset.sh"

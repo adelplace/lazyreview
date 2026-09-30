@@ -4,6 +4,8 @@ Terminal UI to review GitHub pull requests: browse PRs, read whole files annotat
 with their diff, mark files as viewed (synced with GitHub), add line or range
 comments to a pending review and submit it.
 
+![lazyreview demo](demo/demo.gif)
+
 ## Install
 
 ```sh
@@ -73,4 +75,16 @@ return {
 ```sh
 mise run test
 LAZYREVIEW_TEST_REPO=owner/name go test -tags integration ./internal/gh/   # read-only, real API
+```
+
+## Demo
+
+`demo/demo.gif` is recorded with [VHS](https://github.com/charmbracelet/vhs)
+against the sandbox repository
+[adelplace/lazyreview-demo](https://github.com/adelplace/lazyreview-demo):
+
+```sh
+sudo pacman -S vhs ttyd   # or see the VHS install instructions
+demo/setup.sh             # once: creates the sandbox repository and its PRs
+mise run demo             # resets the PRs, then records demo/demo.tape
 ```
