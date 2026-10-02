@@ -41,6 +41,12 @@ func (m *Model) prIndex(row int) int {
 
 // treeIndex maps a row of the files pane to an index in tree.entries, -1 when none.
 func (m *Model) treeIndex(row int) int {
+	if row < 0 {
+		return -1
+	}
+	if m.tree.showFilter() {
+		row--
+	}
 	if i := m.tree.offset + row; row >= 0 && i < len(m.tree.entries) {
 		return i
 	}
@@ -108,6 +114,14 @@ func (m *Model) click(p pane, row, y int) tea.Cmd {
 	if m.prs.filtering {
 		m.prs.filtering = false
 		m.prs.filter.Blur()
+	}
+	if m.tree.filtering {
+		m.tree.filtering = false
+		m.tree.filter.Blur()
+	}
+	if m.searching {
+		m.searching = false
+		m.search.Blur()
 	}
 	m.status = ""
 	m.focus = p

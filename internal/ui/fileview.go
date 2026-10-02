@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -57,6 +58,9 @@ type fileView struct {
 	anchor  int // selection anchor row, -1 when not selecting
 	w, h    int
 
+	query   string // search pattern, kept across files
+	matches []int  // code rows containing query
+
 	numW      int
 	codeCache map[int]string
 }
@@ -64,15 +68,15 @@ type fileView struct {
 func newFileView() fileView { return fileView{anchor: -1} }
 
 func (v *fileView) setLoading(f *gh.File) {
-	*v = fileView{file: f, loading: true, anchor: -1, hunksOnly: v.hunksOnly, w: v.w, h: v.h}
+	*v = fileView{file: f, loading: true, anchor: -1, query: v.query, hunksOnly: v.hunksOnly, w: v.w, h: v.h}
 }
 
 func (v *fileView) setError(f *gh.File, err error) {
-	*v = fileView{file: f, err: err.Error(), anchor: -1, hunksOnly: v.hunksOnly, w: v.w, h: v.h}
+	*v = fileView{file: f, err: err.Error(), anchor: -1, query: v.query, hunksOnly: v.hunksOnly, w: v.w, h: v.h}
 }
 
 func (v *fileView) setFile(f *gh.File, d *fileData, threads []gh.Thread) {
-	*v = fileView{file: f, data: d, anchor: -1, hunksOnly: v.hunksOnly, w: v.w, h: v.h}
+	*v = fileView{file: f, data: d, anchor: -1, query: v.query, hunksOnly: v.hunksOnly, w: v.w, h: v.h}
 	v.setThreads(threads)
 	// Start on the first change, a third down the screen.
 	if len(v.changes) > 0 {
@@ -140,7 +144,7 @@ func (v *fileView) toggleMode() {
 func (v *fileView) rebuild() {
 	v.codeCache = map[int]string{}
 	if v.data == nil {
-		v.rows, v.changes = nil, nil
+		v.rows, v.changes, v.matches = nil, nil, nil
 		return
 	}
 	curLine := -1
@@ -205,6 +209,109 @@ func (v *fileView) rebuild() {
 			}
 		}
 	}
+	v.findMatches()
+}
+
+// matchSpans returns the rune ranges of text containing query. The search
+// ignores case unless query has an uppercase letter, like vim's smartcase.
+func matchSpans(text []rune, query string) [][2]int {
+	q := []rune(query)
+	if len(q) == 0 {
+		return nil
+	}
+	fold := query == strings.ToLower(query)
+	var out [][2]int
+	for i := 0; i+len(q) <= len(text); {
+		j := 0
+		for j < len(q) && (text[i+j] == q[j] || fold && unicode.ToLower(text[i+j]) == q[j]) {
+			j++
+		}
+		if j < len(q) {
+			i++
+			continue
+		}
+		out = append(out, [2]int{i, i + len(q)})
+		i += len(q)
+	}
+	return out
+}
+
+// lineSpans returns the matches of the search pattern in line i, as displayed.
+func (v *fileView) lineSpans(i int) [][2]int {
+	if v.query == "" {
+		return nil
+	}
+	var b strings.Builder
+	for _, s := range v.data.segs[i] {
+		b.WriteString(s.Text)
+	}
+	return matchSpans([]rune(b.String()), v.query)
+}
+
+func (v *fileView) findMatches() {
+	v.matches = v.matches[:0:0]
+	if v.query == "" || v.data == nil {
+		return
+	}
+	for r, rw := range v.rows {
+		if rw.kind == rowCode && len(v.lineSpans(rw.line)) > 0 {
+			v.matches = append(v.matches, r)
+		}
+	}
+}
+
+// setQuery replaces the search pattern, "" clearing the search.
+func (v *fileView) setQuery(q string) {
+	v.query = q
+	v.codeCache = map[int]string{}
+	v.findMatches()
+}
+
+// seekMatch moves to the first match at or after row from, wrapping around.
+// The cursor goes back to from when nothing matches.
+func (v *fileView) seekMatch(from int) {
+	v.cursor = clamp(from, 0, len(v.rows)-1)
+	if len(v.matches) == 0 {
+		return
+	}
+	target := v.matches[0]
+	for _, r := range v.matches {
+		if r >= from {
+			target = r
+			break
+		}
+	}
+	v.cursor = target
+	v.offset = max(target-v.h/3, 0)
+}
+
+// jumpMatch moves to the next (dir=1) or previous (dir=-1) match, wrapping
+// around. It reports whether there is any match.
+func (v *fileView) jumpMatch(dir int) bool {
+	n := len(v.matches)
+	if n == 0 {
+		return false
+	}
+	target := v.matches[0]
+	if dir > 0 {
+		for _, r := range v.matches {
+			if r > v.cursor {
+				target = r
+				break
+			}
+		}
+	} else {
+		target = v.matches[n-1]
+		for i := n - 1; i >= 0; i-- {
+			if r := v.matches[i]; r < v.cursor {
+				target = r
+				break
+			}
+		}
+	}
+	v.cursor = target
+	v.offset = max(target-v.h/3, 0)
+	return true
 }
 
 func (v *fileView) gutterW() int { return 2*v.numW + 4 }
@@ -404,6 +511,20 @@ func (v *fileView) title() string {
 		}
 		t += fmt.Sprintf("  L%d", n)
 	}
+	if v.query != "" {
+		t += "  /" + v.query
+		pos := 0
+		for i, r := range v.matches {
+			if r == v.cursor {
+				pos = i + 1
+			}
+		}
+		if pos > 0 {
+			t += fmt.Sprintf(" %d/%d", pos, len(v.matches))
+		} else {
+			t += fmt.Sprintf(" %d", len(v.matches))
+		}
+	}
 	return t
 }
 
@@ -487,16 +608,40 @@ func (v *fileView) renderCode(i int, bg lipgloss.Color) string {
 	b.WriteString(signSt.Render(sign))
 	b.WriteByte(' ')
 	budget := v.w - v.gutterW()
-	for _, s := range v.data.segs[i] {
-		if budget <= 0 {
-			break
+	write := func(text string, st lipgloss.Style) {
+		if budget <= 0 || text == "" {
+			return
 		}
-		text := s.Text
 		if w := ansi.StringWidth(text); w > budget {
 			text = ansi.Truncate(text, budget, "")
 		}
 		budget -= ansi.StringWidth(text)
-		b.WriteString(s.Style.Render(text))
+		b.WriteString(st.Render(text))
+	}
+	spans := v.lineSpans(i)
+	pos := 0 // rune offset of the segment in the line
+	for _, s := range v.data.segs[i] {
+		if len(spans) == 0 {
+			write(s.Text, s.Style)
+			continue
+		}
+		runes := []rune(s.Text)
+		for start := 0; start < len(runes); {
+			for len(spans) > 0 && spans[0][1] <= pos+start {
+				spans = spans[1:]
+			}
+			end, st := len(runes), s.Style
+			if len(spans) > 0 {
+				if lo := spans[0][0] - pos; lo > start {
+					end = min(end, lo)
+				} else {
+					end, st = min(end, spans[0][1]-pos), stMatch
+				}
+			}
+			write(string(runes[start:end]), st)
+			start = end
+		}
+		pos += len(runes)
 	}
 	if bg == "" {
 		return fit(b.String(), v.w)

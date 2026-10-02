@@ -257,3 +257,63 @@ func TestScreenModeResizesDiff(t *testing.T) {
 		t.Errorf("focus = %d, want diff", f)
 	}
 }
+
+func TestSearchKeys(t *testing.T) {
+	m := mouseModel(t)
+	m, _ = m.Update(press(5, 19)) // open a.go
+	mm := m.(Model)
+	mm.focus = paneView
+	start := mm.view.cursor
+
+	// Typed keys go to the search instead of quitting or moving panes.
+	mm = sendAll(mm, runeKey("/"), runeKey("q"))
+	if !mm.searching || mm.view.query != "q" || mm.focus != paneView {
+		t.Fatalf("searching=%v query=%q focus=%d", mm.searching, mm.view.query, mm.focus)
+	}
+	mm = sendAll(mm, tea.KeyMsg{Type: tea.KeyEsc})
+	if mm.searching || mm.view.query != "" || mm.view.cursor != start {
+		t.Fatalf("after esc: searching=%v query=%q cursor=%d, want %d", mm.searching, mm.view.query, mm.view.cursor, start)
+	}
+
+	mm = sendAll(mm, runeKey("/"), runeKey("line 15"), tea.KeyMsg{Type: tea.KeyEnter})
+	if mm.searching || mm.view.cursor != 15 {
+		t.Fatalf("after enter: searching=%v cursor=%d, want 15", mm.searching, mm.view.cursor)
+	}
+	// n / N walk "line 15", "line 150".."line 159" and wrap.
+	mm = sendAll(mm, runeKey("n"))
+	if mm.view.cursor != 150 {
+		t.Fatalf("n: cursor=%d, want 150", mm.view.cursor)
+	}
+	mm = sendAll(mm, runeKey("N"), runeKey("N"))
+	if mm.view.cursor != 159 {
+		t.Fatalf("N wrap: cursor=%d, want 159", mm.view.cursor)
+	}
+	// esc clears the search; n is a change jump again and stays put here.
+	mm = sendAll(mm, tea.KeyMsg{Type: tea.KeyEsc}, runeKey("n"))
+	if mm.view.query != "" || mm.view.cursor != 159 || mm.status != "" {
+		t.Fatalf("after clear: query=%q cursor=%d status=%q", mm.view.query, mm.view.cursor, mm.status)
+	}
+}
+
+func TestTreeFilterKeys(t *testing.T) {
+	m := mouseModel(t).(Model)
+	m.focus = paneFiles
+	h := m.filesHeight()
+	m = sendAll(m, runeKey("/"), runeKey("c.go"))
+	if !m.tree.filtering || len(m.tree.entries) != 2 || m.filesHeight() != h-1 {
+		t.Fatalf("filtering=%v entries=%d height=%d, want true 2 %d", m.tree.filtering, len(m.tree.entries), m.filesHeight(), h-1)
+	}
+	m = sendAll(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.tree.filtering || m.current != 2 {
+		t.Fatalf("after enter: filtering=%v current=%d, want false 2", m.tree.filtering, m.current)
+	}
+	// Rows: filter (y=16), dir/ (17), c.go (18).
+	m = sendAll(m, press(5, 17), press(5, 18))
+	if m.tree.cursor != 1 || len(m.tree.entries) != 2 {
+		t.Fatalf("click under filter: cursor=%d entries=%d, want 1 2", m.tree.cursor, len(m.tree.entries))
+	}
+	m = sendAll(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.tree.showFilter() || len(m.tree.entries) != 4 || m.tree.selectedFile() != 2 {
+		t.Fatalf("after esc: entries=%d selected=%d, want 4 2", len(m.tree.entries), m.tree.selectedFile())
+	}
+}

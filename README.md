@@ -39,7 +39,8 @@ Press `?` for all keys. The essentials:
 | `enter` | open PR / file |
 | `space` | toggle file viewed, then jump to next unviewed file |
 | `]` `[` | next / previous file |
-| `n` `N` | next / previous change |
+| `/` | filter PRs / files, search in the diff (`esc` clears) |
+| `n` `N` | next / previous change, or search match while searching |
 | `d` | full file ↔ hunks only |
 | `v` then `c` | comment a range (`c` alone comments the cursor line) |
 | `x` | delete the pending comment under the cursor |

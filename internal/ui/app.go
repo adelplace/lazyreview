@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -57,6 +58,11 @@ type Model struct {
 	view      fileView
 	threads   map[string]int // thread count per path
 
+	// search is the diff search input, shown in the status bar while typing.
+	search     textinput.Model
+	searching  bool
+	searchFrom int // diff row the search started from
+
 	cache    map[string]*fileData
 	inflight map[string]bool
 
@@ -81,7 +87,10 @@ func New(c *gh.Client, openPR int) Model {
 	sp := spinner.New()
 	sp.Spinner = spinner.MiniDot
 	sp.Style = stAccent
+	search := textinput.New()
+	search.Prompt = "/"
 	m := Model{
+		search:   search,
 		client:   c,
 		prs:      newPRList(),
 		view:     newFileView(),
@@ -303,10 +312,15 @@ func (m *Model) onDetail(msg detailMsg) tea.Cmd {
 	} else if m.restore != nil && m.restore.PR == msg.number {
 		keepPath = m.restore.File
 	}
+	old, samePR := m.tree, m.detail != nil && m.detail.Number == msg.number
 	m.detail = msg.d
 	m.tree = newFileTree(msg.d.Files)
+	if samePR {
+		m.tree.filter, m.tree.filtering = old.filter, old.filtering
+		m.tree.rebuild()
+	}
 	m.current = -1
-	m.view = fileView{anchor: -1, hunksOnly: m.view.hunksOnly, w: m.view.w, h: m.view.h}
+	m.view = fileView{anchor: -1, hunksOnly: m.view.hunksOnly, query: m.view.query, w: m.view.w, h: m.view.h}
 	m.onThreadsChanged()
 
 	target := -1
@@ -496,6 +510,12 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 		m.prs.applyFilter()
 		return cmd
 	}
+	if m.tree.filtering {
+		return m.keyTreeFilter(k)
+	}
+	if m.searching {
+		return m.keySearch(k)
+	}
 	m.status = ""
 
 	switch key {
@@ -573,6 +593,55 @@ func (m *Model) onKey(k tea.KeyMsg) tea.Cmd {
 	default:
 		return m.keyView(key)
 	}
+}
+
+// keyTreeFilter handles a key typed in the file filter.
+func (m *Model) keyTreeFilter(k tea.KeyMsg) tea.Cmd {
+	switch k.String() {
+	case "esc":
+		m.tree.filtering = false
+		m.tree.filter.Blur()
+		m.tree.filter.SetValue("")
+		m.tree.applyFilter()
+		return nil
+	case "enter":
+		m.tree.filtering = false
+		m.tree.filter.Blur()
+		if fi := m.tree.selectedFile(); fi >= 0 {
+			return m.openFile(fi)
+		}
+		return nil
+	}
+	var cmd tea.Cmd
+	m.tree.filter, cmd = m.tree.filter.Update(k)
+	m.tree.applyFilter()
+	return cmd
+}
+
+// keySearch handles a key typed in the diff search, jumping to the first
+// match as the pattern is typed.
+func (m *Model) keySearch(k tea.KeyMsg) tea.Cmd {
+	switch k.String() {
+	case "esc":
+		m.searching = false
+		m.search.Blur()
+		m.view.setQuery("")
+		m.view.seekMatch(m.searchFrom)
+		return nil
+	case "enter":
+		m.searching = false
+		m.search.Blur()
+		m.view.setQuery(m.search.Value())
+		if m.view.query != "" && len(m.view.matches) == 0 {
+			m.setStatus("pattern not found: "+m.view.query, true)
+		}
+		return nil
+	}
+	var cmd tea.Cmd
+	m.search, cmd = m.search.Update(k)
+	m.view.setQuery(m.search.Value())
+	m.view.seekMatch(m.searchFrom)
+	return cmd
 }
 
 // focusDir moves focus spatially: PRs above Files on the left, Diff on the right.
@@ -668,6 +737,12 @@ func (m *Model) keyFiles(key string) tea.Cmd {
 			return m.openFile(fi)
 		}
 		m.tree.toggleDir()
+	case "/":
+		m.tree.filtering = true
+		return m.tree.filter.Focus()
+	case "esc":
+		m.tree.filter.SetValue("")
+		m.tree.applyFilter()
 	case " ":
 		return m.toggleViewed(m.tree.selectedFile(), false)
 	case "d":
@@ -705,16 +780,30 @@ func (m *Model) keyView(key string) tea.Cmd {
 		m.view.top()
 	case "G", "end":
 		m.view.bottom()
-	case "n":
-		m.view.jumpChange(1)
-	case "N":
-		m.view.jumpChange(-1)
+	case "n", "N":
+		dir := 1
+		if key == "N" {
+			dir = -1
+		}
+		if m.view.query == "" {
+			m.view.jumpChange(dir)
+		} else if !m.view.jumpMatch(dir) {
+			m.setStatus("pattern not found: "+m.view.query, true)
+		}
+	case "/":
+		m.searching, m.searchFrom = true, m.view.cursor
+		m.search.SetValue("")
+		return m.search.Focus()
 	case "d":
 		m.view.toggleMode()
 	case "v":
 		m.view.toggleSelect()
 	case "esc":
-		m.view.anchor = -1
+		if m.view.anchor >= 0 {
+			m.view.anchor = -1
+		} else {
+			m.view.setQuery("")
+		}
 	case " ":
 		return m.toggleViewed(m.current, true)
 	case "e":
@@ -780,6 +869,8 @@ func (m *Model) syncScroll() {
 	}
 	prH := m.prHeight()
 	m.prs.filter.Width = max(leftW-5, 1)
+	m.tree.filter.Width = max(leftW-5, 1)
+	m.search.Width = max(m.w/2, 1)
 	m.prs.offset = scroll(m.prs.cursor, m.prs.offset, m.prs.rows(prH-2), len(m.prs.items))
 	m.tree.offset = scroll(m.tree.cursor, m.tree.offset, m.filesHeight(), len(m.tree.entries))
 	m.view.offset = scroll(m.view.cursor, m.view.offset, m.view.h, len(m.view.rows))
@@ -818,7 +909,11 @@ func (m *Model) prHeight() int {
 // filesHeight is the number of rows inside the files pane.
 func (m *Model) filesHeight() int {
 	_, _, bodyH := m.layout()
-	return max(bodyH-m.prHeight()-2, 1)
+	h := bodyH - m.prHeight() - 2
+	if m.tree.showFilter() {
+		h--
+	}
+	return max(h, 1)
 }
 
 func (m Model) View() string {
@@ -871,6 +966,8 @@ func (m Model) View() string {
 func (m *Model) statusBar() string {
 	var left string
 	switch {
+	case m.searching:
+		left = " " + m.search.View()
 	case m.status != "" && m.statusErr:
 		left = stErr.Render(" " + term.Line(m.status))
 	case m.status != "":
@@ -880,9 +977,9 @@ func (m *Model) statusBar() string {
 		case panePRs:
 			left = " " + hints("enter", "open", "/", "filter", "s", "state", "o", "browser", "?", "help")
 		case paneFiles:
-			left = " " + hints("enter", "open", "space", "viewed", "]/[", "next/prev", "d", "full/hunks", "e", "edit", "?", "help")
+			left = " " + hints("enter", "open", "/", "filter", "space", "viewed", "]/[", "next/prev", "d", "full/hunks", "e", "edit", "?", "help")
 		default:
-			left = " " + hints("c", "comment", "v", "range", "space", "viewed", "n/N", "change", "e", "edit", "S", "submit", "?", "help")
+			left = " " + hints("c", "comment", "v", "range", "space", "viewed", "n/N", "change", "/", "search", "e", "edit", "S", "submit", "?", "help")
 		}
 	}
 	var right []string

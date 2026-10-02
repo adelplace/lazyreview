@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/adelplace/lazyreview/internal/diff"
 	"github.com/adelplace/lazyreview/internal/gh"
 	"github.com/adelplace/lazyreview/internal/highlight"
@@ -226,5 +228,80 @@ func TestNvimOpenKeys(t *testing.T) {
 	want := `<Cmd>silent! hide | edit +7 /r/a\ b\|\<lt>c>\%.go<CR>`
 	if got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+func TestSearch(t *testing.T) {
+	// lines: 0 " a" 1 "+NEW" 2 " b" 3 " c" 4 "-gone" 5 " d"
+	v := testView(t, nil)
+	rowOf := func(li int) int {
+		for r, rw := range v.rows {
+			if rw.kind == rowCode && rw.line == li {
+				return r
+			}
+		}
+		t.Fatalf("line %d not displayed", li)
+		return -1
+	}
+
+	v.setQuery("n") // smartcase: NEW and gone
+	if len(v.matches) != 2 || v.matches[0] != rowOf(1) || v.matches[1] != rowOf(4) {
+		t.Fatalf("matches = %v, want rows of lines 1 and 4", v.matches)
+	}
+	v.setQuery("N")
+	if len(v.matches) != 1 || v.matches[0] != rowOf(1) {
+		t.Fatalf("matches = %v, want the row of line 1 only", v.matches)
+	}
+
+	v.setQuery("n")
+	v.seekMatch(rowOf(2))
+	if v.cursor != rowOf(4) {
+		t.Fatalf("seek from line 2: cursor = %d, want %d", v.cursor, rowOf(4))
+	}
+	v.jumpMatch(1)
+	if v.cursor != rowOf(1) {
+		t.Fatalf("next wraps: cursor = %d, want %d", v.cursor, rowOf(1))
+	}
+	v.jumpMatch(-1)
+	if v.cursor != rowOf(4) {
+		t.Fatalf("previous wraps: cursor = %d, want %d", v.cursor, rowOf(4))
+	}
+	if !strings.Contains(v.title(), "/n 2/2") {
+		t.Fatalf("title = %q, want the match position", v.title())
+	}
+
+	// Rows shift in hunks-only mode: matches follow.
+	v.toggleMode()
+	if len(v.matches) != 2 || v.matches[0] != rowOf(1) || v.matches[1] != rowOf(4) {
+		t.Fatalf("matches after toggle = %v", v.matches)
+	}
+
+	// The pattern survives a file change.
+	v.setFile(v.file, v.data, nil)
+	if v.query != "n" || len(v.matches) != 2 {
+		t.Fatalf("after setFile: query=%q matches=%v", v.query, v.matches)
+	}
+	v.setQuery("zzz")
+	if v.jumpMatch(1) || len(v.matches) != 0 {
+		t.Fatal("match found for an absent pattern")
+	}
+}
+
+func TestMatchSpans(t *testing.T) {
+	got := matchSpans([]rune("Éa éa xea"), "éa")
+	if len(got) != 2 || got[0] != [2]int{0, 2} || got[1] != [2]int{3, 5} {
+		t.Fatalf("spans = %v", got)
+	}
+	if got := matchSpans([]rune("aaa"), "aa"); len(got) != 1 {
+		t.Fatalf("overlapping spans = %v, want one", got)
+	}
+}
+
+func TestRenderCodeKeepsTextWithMatches(t *testing.T) {
+	v := testView(t, nil)
+	plain := ansi.Strip(v.renderCode(1, ""))
+	v.setQuery("e")
+	if got := ansi.Strip(v.renderCode(1, "")); got != plain {
+		t.Fatalf("rendered %q, want %q", got, plain)
 	}
 }

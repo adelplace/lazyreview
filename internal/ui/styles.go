@@ -36,6 +36,7 @@ var (
 	stBold    = lipgloss.NewStyle().Bold(true)
 	stErr     = lipgloss.NewStyle().Foreground(colRed).Bold(true)
 	stKey     = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+	stMatch   = lipgloss.NewStyle().Foreground(lipgloss.Color("#1e1e2e")).Background(colYellow)
 	stStatusB = lipgloss.NewStyle().Background(lipgloss.Color("#181825"))
 )
 
