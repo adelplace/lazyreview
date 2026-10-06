@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs the lazyreview binary from a GitHub release.
 #
-#   curl -fsSL https://raw.githubusercontent.com/adelplace/lazyreview/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/adelplace/lazyreview/master/install.sh | sh
 #
 # Environment:
 #   INSTALL_DIR  destination directory (default: ~/.local/bin)
