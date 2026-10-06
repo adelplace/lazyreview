@@ -9,6 +9,20 @@ comments to a pending review and submit it.
 ## Install
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/adelplace/lazyreview/master/install.sh | sh
+```
+
+Installs the latest release binary (Linux / macOS, amd64 / arm64) to
+`~/.local/bin`. Set `INSTALL_DIR` or `VERSION` to change the destination or pin
+a release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/adelplace/lazyreview/master/install.sh | INSTALL_DIR=/usr/local/bin VERSION=v0.1.0 sh
+```
+
+From source:
+
+```sh
 mise install            # Go toolchain pinned in mise.toml
 mise run build          # builds ./lazyreview
 ```
